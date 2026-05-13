@@ -30,7 +30,20 @@ function isYearLike(s: string) {
 }
 
 function pNum(s: string) { return parseFloat(s.replace(/[^0-9.]/g, '')) || 0 }
-function pPct(s: string) { const n = pNum(s); return n > 1 ? Math.round(n) / 100 : n }
+
+function pPct(s: string): number {
+  const clean = s.trim().replace('%', '')
+  // "made/attempted" format e.g. "20/59" → 0.339
+  if (clean.includes('/')) {
+    const parts = clean.split('/')
+    const made = parseFloat(parts[0]) || 0
+    const att  = parseFloat(parts[1]) || 0
+    return att > 0 ? Math.round((made / att) * 1000) / 1000 : 0
+  }
+  const n = parseFloat(clean) || 0
+  // percentage like "47.3" → 0.473; already-decimal "0.473" stays
+  return n > 1 ? n / 100 : n
+}
 
 function tryTable($: any, table: any): StatRow[] {
   const rows: any[] = $(table).find('tr').toArray()

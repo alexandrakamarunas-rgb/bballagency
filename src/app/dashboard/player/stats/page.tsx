@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { createClient } from '@/utils/supabase/client'
 import type { PlayerStats } from '@/types'
+import type { StatRow } from '@/app/api/import-stats/route'
 
 const inputCls = 'w-full bg-[#111] border border-white/10 px-3 py-2.5 text-sm text-white placeholder:text-gray-700 focus:outline-none focus:border-[#C9A96E]/60 transition-colors'
 
@@ -37,6 +38,12 @@ export default function PlayerStatsPage() {
   const [form, setForm]         = useState<FormState>(emptyForm())
   const [saving, setSaving]     = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+
+  // Import from Eurobasket
+  const [ebUrl, setEbUrl]           = useState('')
+  const [importing, setImporting]   = useState(false)
+  const [preview, setPreview]       = useState<StatRow[] | null>(null)
+  const [confirming, setConfirming] = useState(false)
 
   const fetchStats = useCallback(async (pid: string) => {
     const { data } = await createClient().from('player_stats').select('*').eq('player_id', pid).order('season', { ascending: false })
@@ -72,6 +79,36 @@ export default function PlayerStatsPage() {
     toast.success('Season added!')
     setForm(emptyForm())
     fetchStats(playerId)
+  }
+
+  async function handleImport() {
+    if (!ebUrl.trim()) { toast.error('Enter your Eurobasket.com profile URL'); return }
+    setImporting(true); setPreview(null)
+    try {
+      const res = await fetch('/api/import-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: ebUrl }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) { toast.error(data.error ?? 'Import failed.'); setImporting(false); return }
+      setPreview(data.stats)
+      toast.success(`Found ${data.stats.length} season${data.stats.length !== 1 ? 's' : ''}!`)
+    } catch { toast.error('Could not reach the import service.') }
+    setImporting(false)
+  }
+
+  async function handleConfirmImport() {
+    if (!preview?.length || !playerId) return
+    setConfirming(true)
+    const supabase = createClient()
+    const seasons = [...new Set(preview.map(r => r.season))]
+    await supabase.from('player_stats').delete().eq('player_id', playerId).in('season', seasons)
+    const { error } = await supabase.from('player_stats').insert(preview.map(r => ({ player_id: playerId, ...r })))
+    setConfirming(false)
+    if (error) { toast.error(error.message); return }
+    toast.success(`${preview.length} season${preview.length !== 1 ? 's' : ''} imported!`)
+    setPreview(null); fetchStats(playerId)
   }
 
   async function handleDelete(id: string) {
@@ -171,6 +208,94 @@ export default function PlayerStatsPage() {
             </div>
           </div>
         )}
+
+        {/* ── IMPORT FROM EUROBASKET ─────────────────────────────── */}
+        <div className="mt-10 pt-8 border-t border-white/10">
+          <p className="text-[#C9A96E] text-[10px] tracking-[0.35em] uppercase mb-1">Auto Import</p>
+          <h2 className="text-xl font-black mb-1">IMPORT FROM EUROBASKET.COM</h2>
+          <p className="text-xs text-gray-500 mb-5 leading-relaxed">
+            Paste your Eurobasket.com player profile URL to automatically import your career stats.
+          </p>
+
+          <div className="flex gap-3 mb-3">
+            <input
+              type="url"
+              value={ebUrl}
+              onChange={e => { setEbUrl(e.target.value); setPreview(null) }}
+              placeholder="https://www.eurobasket.com/player/Your-Name-123456.aspx"
+              className="flex-1 bg-[#111] border border-white/10 px-4 py-3 text-sm text-white placeholder:text-gray-700 focus:outline-none focus:border-[#C9A96E]/60 transition-colors"
+            />
+            <button
+              onClick={handleImport}
+              disabled={importing || !ebUrl.trim()}
+              className="flex items-center gap-2 px-6 py-3 bg-[#C9A96E] text-black text-xs font-bold tracking-widest uppercase hover:bg-[#b8935a] transition-colors disabled:opacity-50 whitespace-nowrap"
+            >
+              {importing
+                ? <><div className="w-3.5 h-3.5 border-2 border-black/30 border-t-black rounded-full animate-spin" /> IMPORTING…</>
+                : <>
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    IMPORT STATS
+                  </>
+              }
+            </button>
+          </div>
+
+          {/* Preview */}
+          {preview && preview.length > 0 && (
+            <div className="space-y-4 mt-5">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-bold">Found <span className="text-[#C9A96E]">{preview.length}</span> season{preview.length !== 1 ? 's' : ''}</p>
+                <button onClick={() => setPreview(null)} className="text-[10px] text-gray-600 hover:text-white uppercase tracking-widest transition-colors">Clear</button>
+              </div>
+              <div className="border border-white/10 overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/10 bg-[#111]">
+                      {['Season','Team','League','GP','PPG','RPG','APG','FG%','3PT%','FT%'].map(h => (
+                        <th key={h} className="text-left text-[9px] uppercase tracking-widest text-[#C9A96E] px-3 py-2.5 whitespace-nowrap font-bold">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {preview.map((r, i) => (
+                      <tr key={i} className="border-b border-white/5">
+                        <td className="px-3 py-2.5 font-bold text-[#C9A96E] whitespace-nowrap">{r.season || '—'}</td>
+                        <td className="px-3 py-2.5 text-gray-300 whitespace-nowrap max-w-[120px] truncate">{r.team || '—'}</td>
+                        <td className="px-3 py-2.5 text-gray-500 whitespace-nowrap">{r.league || '—'}</td>
+                        <td className="px-3 py-2.5">{r.games_played || '—'}</td>
+                        <td className="px-3 py-2.5 font-bold text-white">{r.ppg ? r.ppg.toFixed(1) : '—'}</td>
+                        <td className="px-3 py-2.5">{r.rpg ? r.rpg.toFixed(1) : '—'}</td>
+                        <td className="px-3 py-2.5">{r.apg ? r.apg.toFixed(1) : '—'}</td>
+                        <td className="px-3 py-2.5">{r.fg_pct ? fmtPct(r.fg_pct) : '—'}</td>
+                        <td className="px-3 py-2.5">{r.three_pct ? fmtPct(r.three_pct) : '—'}</td>
+                        <td className="px-3 py-2.5">{r.ft_pct ? fmtPct(r.ft_pct) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex items-start gap-3">
+                <button onClick={handleConfirmImport} disabled={confirming}
+                  className="flex items-center gap-2 px-8 py-3 bg-[#C9A96E] text-black text-xs font-bold tracking-widest uppercase hover:bg-[#b8935a] transition-colors disabled:opacity-50">
+                  {confirming
+                    ? <><div className="w-3.5 h-3.5 border-2 border-black/30 border-t-black rounded-full animate-spin" /> SAVING…</>
+                    : <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg> CONFIRM IMPORT</>
+                  }
+                </button>
+                <p className="text-[10px] text-gray-600 leading-relaxed pt-1">Replaces existing stats for matching seasons.</p>
+              </div>
+            </div>
+          )}
+
+          <p className="mt-4 text-[10px] text-gray-700 leading-relaxed">
+            Can&apos;t find your profile? Visit{' '}
+            <a href="https://www.eurobasket.com" target="_blank" rel="noopener noreferrer" className="text-gray-600 underline hover:text-gray-400 transition-colors">eurobasket.com</a>
+            , search your name, copy the full URL from the address bar, and paste it above.
+          </p>
+        </div>
+
       </div>
     </div>
   )
