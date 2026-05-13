@@ -1,6 +1,12 @@
 import { createServerClient } from '@supabase/ssr'
 import { type NextRequest, NextResponse } from 'next/server'
 
+function dashboardForRole(role: string | undefined) {
+  if (role === 'team')  return '/dashboard/team'
+  if (role === 'agent') return '/dashboard/agent'
+  return '/dashboard/player'
+}
+
 export async function middleware(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
@@ -25,14 +31,16 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   const isProtected = pathname.startsWith('/dashboard') || pathname.startsWith('/onboarding')
-  const isAuthPage = pathname === '/login' || pathname === '/register'
+  const isAuthPage  = pathname === '/login' || pathname === '/register'
 
   if (!user && isProtected) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
   if (user && isAuthPage) {
-    return NextResponse.redirect(new URL('/dashboard/player', request.url))
+    // Role is stored in JWT metadata — no extra DB query needed
+    const role = user.user_metadata?.role as string | undefined
+    return NextResponse.redirect(new URL(dashboardForRole(role), request.url))
   }
 
   return supabaseResponse
