@@ -72,6 +72,29 @@ export interface AgentPlayer {
   players?: PlayerWithStats
 }
 
+export interface Position {
+  id: string
+  team_id: string
+  position: string
+  budget_range: string | null
+  requirements: string | null
+  is_active: boolean
+  created_at: string
+}
+
+export interface PositionWithTeam extends Position {
+  teams: {
+    id: string
+    club_name: string
+    country: string | null
+    city: string | null
+    logo_url: string | null
+    league_name: string | null
+    league_level: string | null
+    season: string | null
+  } | null
+}
+
 export interface Agent {
   id: string
   first_name: string | null
